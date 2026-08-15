@@ -12,6 +12,43 @@
 
 #define ERROR -1
 
+#define S 24
+#define M 64
+#define L 256
+
+
+typedef enum Opt_Type{
+        Query,
+        Deposit,
+        Withdraw,
+        Transfer,
+        Quit
+} opt_type;
+typedef MSG {
+        opt_type opt_type;
+        char dst[S];
+        unsigned long long data;
+} MSG;
+
+void show_intro() {
+        printf("1) \tRegister\n");
+        printf("2) \tLogin\n");
+        printf("3) \tdelete account\n");
+}
+
+void show_operation() {
+        printf("1) \tQuery\n");
+        printf("2) \tDeposit\n");          
+        printf("3) \tWithdraw\n");     
+        printf("4) \tTransfer\n");
+        printf("5) \tQuit\n");
+}
+
+void send_func(int clientfd, MSG *pmsg) {
+        send(clientfd, pmsg, sizeof(*pmsg), 0);
+        memset(pmsg, 0, sizeof(*pmsg));
+}
+
 int main(int argc, const char *argv[]) {
         printf("client start\n");
         int clientfd = socket(AF_INET, SOCK_STREAM, 0);
@@ -32,10 +69,60 @@ int main(int argc, const char *argv[]) {
                 return ERROR;
         }
 
+        int choose_intro;
+        int choose_operation;
+        int status = 1;
         while(1) {
                 // TODO
-                //
-                //
+                if (status == 1) {
+                        show_intro();
+                        scanf("%d", &choose_intro);
+                        switch(choose_intro) {
+                                case 1:
+                                        continue;
+                                case 2:
+                                        continue;
+                                case 3:
+                                        continue;
+                        }
+                } else if (status == 2) {
+                        // ini msg
+                        MSG msg;
+                        memset(msg.data, 0, sizeof(msg.data));
+                        memset(msg.dst, 0, sizeof(msg.dst));
+
+                        show_operation();
+                        scanf("%d", &choose_operation);
+                        switch(choose) {
+                                case 1:         
+                                        continue;
+                                case 2:
+                                        continue;
+                                case 3:
+                                        continue;
+                                case 4:                 // Transfer
+                                        msg.opt_type = Transfer;
+
+                                        char dst_buf[S] = {0};
+                                        printf("input dst account public key\n");
+                                        fgets(dst_buf, S, stdin);
+                                        buf[strcspn(buf, "\n")] = '\0';
+                                        strncpy(msg.dst, dst_buf, S);
+                                        memset(dst_buf, 0, S);
+
+                                        printf("input money account you want to transfer\n");
+                                        scanf("%llu", &msg.data);
+
+                                        send_func(clientfd, &msg);
+                                        continue;
+                                case 5:
+                                        break;
+                        }
+                }
+
+
+                
+                
         }
         return 0;
 }

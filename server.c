@@ -10,11 +10,12 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#include <limits.h>     // TODO: limit msg.data length from client
 #define PORT 9999
 #define SERVER_IP "192.168.1.100"
 
 #define ERROR -1
-
+// TODO email-check : 5 error input or huge money operation
 int wstatus;
 void sig_recycle(int signum) {
         waitpid(-1, &wstatus, 0);
