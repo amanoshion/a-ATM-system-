@@ -27,7 +27,7 @@ typedef enum Opt_Type{
 typedef MSG {
         opt_type opt_type;
         char dst[S];
-        unsigned long long data;
+        unsigned long data;
 } MSG;
 
 void show_intro() {
@@ -111,7 +111,7 @@ int main(int argc, const char *argv[]) {
                                         memset(dst_buf, 0, S);
 
                                         printf("input money account you want to transfer\n");
-                                        scanf("%llu", &msg.data);
+                                        scanf("%lu", &msg.data);
 
                                         send_func(clientfd, &msg);
                                         continue;
