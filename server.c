@@ -14,11 +14,14 @@
 #define SERVER_IP "192.168.1.100"
 
 #define ERROR -1
-// TODO key_word check: 5 error input or huge money operation
 
 #define S 24
 #define M 64
 #define L 256
+
+static char current_user_public_key[S] = {0};
+static int login = 0;
+static int error_count = 0;
 
 typedef enum Opt_Type{
         Query,
@@ -26,14 +29,15 @@ typedef enum Opt_Type{
         Withdraw,
         Transfer,
         Quit
-} opt_type;
+} Opt_Type;
 char *names_opt[5] = {"Query", "Deposit", "Withdraw", "Transfer", "Quit"};
 
 typedef enum Result_Type {
-        Success,
-        Fail,
-        Tips
-}result_type;
+        Fail = -1,
+        Success = 0,
+        Unknown = 1
+} Result_Type;
+
 char *names_result[3] = {"Success", "Fail", "Tips"};
 
 typedef MSG {
@@ -48,10 +52,10 @@ void sig_recycle(int signum) {
         waitpid(-1, &wstatus, 0);
 }
 
-void send_func(int acceptfd, opt_type type1, result_type type2, char *explain_msg) {
+void send_func(int acceptfd, Opt_Type opt_type, Result_Type result_type, char *explain_msg) {
         buffer[M] = {0};
-        strncat(buffer, names_opt[type1], S + 1);
-        strncpy(buffer, names_result[type2], S + 1);
+        strncat(buffer, names_opt[opt_type], S + 1);
+        strncpy(buffer, names_result[result_type], S + 1);
         if (explain_msg != NULL) {
                 strncat(buffer, explain_msg, M + 1);
         }
@@ -63,13 +67,34 @@ void send_func(int acceptfd, opt_type type1, result_type type2, char *explain_ms
         return;
 }
 
-void handle_client_opt(int acceptfd, opt_type type1, char *explain_msg, MSG *msg) {       
-        result_type type2 = Tips;             // TODO : get type2 value
-        send_func(acceptfd, type1, type2, "start");
-        check_status();         // TODO : check if account is login
-        opt_account_db(msg);           // TODO
-        opt_log_db(msg);               // TODO
-        send_func(acceptfd, type1, type2, "finish");
+void check_login(char *explain_msg, Result_Type *result_type) {
+        if (login == 0) {
+                memset(explain_msg, 0, M);
+                strnlen(explain_msg, "need login in");
+                *result_type = Fail;
+        } else {
+                *result_type = Success;
+        }
+        return;
+}
+
+Result_Type handle_client_opt(int acceptfd, Opt_Type opt_type, MSG *msg) {   
+        Result_Type result_type = Unknown;    
+        char explain_msg[M] = {0};
+        
+        memset(explain_msg, 0, M);
+        strnlen(explain_msg, "start");
+        send_func(acceptfd, &result_type, opt_type, explain_msg);
+        
+        check_login(explain_msg, &result_type);         // check if account is login 
+
+        check_illegal(msg, &result_type, current_user_public_key, explain_msg);         // check if is illegal
+
+        opt_account_db(msg, &result_type);           // TODO
+        opt_log_db(msg, &result_type);               // TODO
+
+        send_func(acceptfd, opt_type, &result_type, explain_msg);
+        return Result_Type;
 }
 
 int main(int argc, const char *argv[]) {
