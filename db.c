@@ -1,46 +1,10 @@
-#include <stdio.h>
-#include <sqlite3.h>
-#include <time.h>
+#include "db.h"
 
-#define DB_PATH "./atm.db"
-#define PASSWD_TABLE_NAME "passwd"
-#define ACCOUNT_TABLE_NAME "account"
-#define LOG_TABLE_NAME "log"
-
-#define OK 0
-#define ERROR -1
-
-#define S 24
-#define M 64
-#define L 256
-typedef enum Opt_Type{
-        Query_account,
-        Query_log,
-        Deposit,
-        Withdraw,
-        Transfer,
-        Quit
-} opt_type;
 char names_opt[] = {"Register", "Login", "Delete_account", "Query", "Deposit", "Withdraw", "Transfer", "Quit"};
 
-typedef enum Result_Type {
-        Fail = -1,
-        Success = 0,
-        Unknown = 1
-} Result_Type;
+
 char *names_result[3] = {"Success", "Fail", "Tips"};
 
-typedef MSG {
-        opt_type opt_type;
-        char dst[S];
-        unsigned long data;
-} MSG;
-
-typedef enum account_status {
-        Normal,         // 0 idle account
-        Locked,         // 1 login in account
-        Frozen,         // 2 block by root
-}
 
 unsigned long char_to_int(char *str) {
         return strtol(str, NULL, 10);
@@ -70,7 +34,7 @@ int ini_db() {
         char sentence_create_account[L] = {0};
         snprintf(sentence_create_account, "CREATE TABLE IF NOT EXISTS %s
                 (public_key TEXT PRIMARY KEY NOT NULL,
-                account_status, INTEGER NOT NULL,
+                account_status TEXT NOT NULL,
                 blance INTEGER NOT NULL);", AMOUNT_TABLE_NAME
         );
         
@@ -115,13 +79,10 @@ void check_status(char *public_key, Result_Type *result_type, char *explain_msg)
         if (ret == ERROR || nrow != 1) {
                 memset(explain_msg, 0, M);
                 strncpy(explain_msg, "no user or system error");
-                return ERROR;
+                *result_type == Fail;
+                return;
         }
 
-        if (ret == ERROR) {
-                memset(explain_msg, 0, M);
-                strncpy(explain_msg, "no user");
-        }
         if (((strncmp(resultp[4]), "Normal", 5) == 0) && (strlen(resultp[5]) == 5 )) {     
                 *result_type = Success;
         } else {
