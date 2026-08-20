@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <sqlite3.h>
 #include <time.h>
+#include <sodium.h>     // generating Ed25519 key, need gcc -lsodium
 
 #define DB_PATH "./atm.db"
 #define PASSWD_TABLE_NAME "passwd"
@@ -61,8 +62,8 @@ void opt_freeze(char *public_key);
 void opt_defrost(char *public_key);
 void opt_lock(char *public_key);
 
-char* generate_account(unsigned long int passwd, Result_Type *result_type, char *explain_msg);
-void create_root_account_if_not_exitst(unsigned long int passwd);
+void generate_account(unsigned long int passwd, unsigned char *explain_msg);
+void create_root_account_if_not_exits(unsigned long int passwd);
 
 extern sqlite3 *ppdb;
 extern char *errmsg;

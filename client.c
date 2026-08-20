@@ -110,7 +110,7 @@ int main(int argc, const char *argv[]) {
 
                         show_menu();
                         scanf("%d", &choose_menu);
-                        char dst_buf[L] = {0};
+                        // char dst_buf[L] = {0};
                         switch(choose_menu) {
                                 case 1:         // Register
                                         msg.opt_type = Register;
@@ -203,7 +203,7 @@ int main(int argc, const char *argv[]) {
                         msg.data = 0;
                         memset(msg.dst, 0, sizeof(msg.dst));
 
-                        show_intro();
+                        show_root();
                         scanf("%d", &choose_menu);
                         char dst_buf[L] = {0};
                         switch(choose_menu) {

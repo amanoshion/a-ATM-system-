@@ -1,5 +1,3 @@
-#include <stdio.h>
-#include <stdlib.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -10,7 +8,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#include <sodium.h>     // generating Ed25519 key, need gcc -lsodium
 
 #include "db.h"
 
@@ -66,37 +63,15 @@ void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islog
         strncpy(current_user_public_key, pk_new, L);
         opt_lock(current_user_public_key);      // lock
         *result_type = Success;
-        *islogin = 0;
-        return;
-}
-
-void opt_delete_account(char *public_key, Result_Type *result_type, char *explain_msg) {
-        char sentence_delete_passwd[L] = {0};
-        snprintf(sentence_delete_passwd, L, "DELETE FROM %s WHERE public_key = '%s';", PASSWD_TABLE_NAME, public_key);
-        int ret_exec;
-        ret_exec = sqlite3_exec(ppdb, sentence_delete_passwd, NULL, NULL, &errmsg);
-        if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail : %s", errmsg);
-                result_type = Fail;
-                return;
-        }
-        char sentence_delete_account[L] = {0};
-        snprintf(sentence_delete_account, L, "DELETE FROM %s WHERE public_key = '%s';", ACCOUNT_TABLE_NAME, public_key);        
-        ret_exec = sqlite3_exec(ppdb, sentence_delete_account, NULL, NULL, &errmsg);
-        if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail : %s", errmsg);
-                result_type = Fail;
-                return;
-        }
-        result_type = Success;
+        *islogin = 1;
         return;
 }
 
 Result_Type handle_menu(int acceptfd, MSG *msg, char *explain_msg, int *islogin) {
-        Result_Type result_type;
+        Result_Type result_type = Success;
         switch(msg->opt_type) {
                 case Register:  
-                        generate_account(msg->data, &result_type, explain_msg);
+                        generate_account(msg->data, explain_msg);
                         break;
                 case Login:
                         opt_login(msg, &result_type, explain_msg, islogin);
@@ -104,7 +79,7 @@ Result_Type handle_menu(int acceptfd, MSG *msg, char *explain_msg, int *islogin)
                 default:
                         break;
         }
-        return;
+        return result_type;
 }
 
 Result_Type handle_client_opt(int acceptfd, MSG *msg, char *explain_msg) {   
@@ -113,7 +88,7 @@ Result_Type handle_client_opt(int acceptfd, MSG *msg, char *explain_msg) {
         check_illegal(msg, &result_type, explain_msg, current_user_public_key);         // check status and opt type
 
         opt_account_db(msg, &result_type, explain_msg, current_user_public_key);           
-        opt_log_db(msg, &result_type);               
+        opt_log_db(msg, current_user_public_key);               
 
         return result_type;
 }
@@ -150,6 +125,9 @@ int main(int argc, const char *argv[]) {
 
         int acceptfd = 0;
         pid_t pid = 0;
+
+        ini_db();
+
         // recycle son process
         signal(SIGCHLD, sig_recycle);
         while(1) {
@@ -168,8 +146,8 @@ int main(int argc, const char *argv[]) {
                         close(acceptfd);
                         break;
                 } else if (pid == 0) {  // this is son process
-                        ini_db();               
-                        int islogin = 1;
+                                       
+                        int islogin = 0;
                         while(1) {
                                 MSG msg;
                                 int ret_recv = recv(acceptfd, &msg, sizeof(msg), 0);
@@ -184,7 +162,7 @@ int main(int argc, const char *argv[]) {
                                         // handle menu operation
                                         result_msg.result_type = handle_menu(acceptfd, &msg, explain_msg, &islogin);
                                         // check login
-                                        if (result_msg.result_type == Success && islogin == 0) {
+                                        if (result_msg.result_type == Success && islogin == 1) {
                                                 strncpy(current_user_public_key, msg.dst,L);
                                         }
 
@@ -193,7 +171,7 @@ int main(int argc, const char *argv[]) {
                                         send_func(acceptfd, &result_msg);
                                         // log if success
                                         if (result_msg.result_type == Success) {
-                                                opt_log_db(&msg, msg.dst);
+                                                opt_log_db(&msg, current_user_public_key);
                                         }
                                 } else if (islogin) {
                                         Result_MSG result_msg;
@@ -208,8 +186,8 @@ int main(int argc, const char *argv[]) {
                                                 opt_defrost(current_user_public_key);   // status into normal
                                         }
                                         // log if success
-                                        if (result_msg.result_type == Success && msg.opt_type != Quit) {
-                                                opt_log_db(&msg, msg.dst);
+                                        if ((result_msg.result_type == Success) && msg.opt_type != Quit) {
+                                                opt_log_db(&msg, current_user_public_key);
                                         }
                                 }
                         }

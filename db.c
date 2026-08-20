@@ -1,7 +1,19 @@
 #include "db.h"
 
-char *names_opt[] = {"Register", "Login", "Delete_account", "Query_self", "Query_log", "Deposit", "Withdraw", "Transfer", "Quit"};
-
+char *names_opt[] = {
+        "Register",
+        "Login",
+        "Delete_account",
+        "Query_self",
+        "Query_log",
+        "Deposit",
+        "Withdraw",
+        "Transfer",
+        "Quit",
+        "Freeze",
+        "Defrost",
+        "Query_log_root"
+};
 char *names_result[] = {"Success", "Fail", "Tips"};
 
 unsigned long char_to_int(char *str) {
@@ -17,30 +29,30 @@ void change_account_status(char *public_key, Account_Status account_status) {
         char sentence_change_account_status[L] = {0};
         snprintf(sentence_change_account_status, L, "UPDATE %s SET account_status = %d WHERE public_key = '%s'", ACCOUNT_TABLE_NAME, account_status, public_key);
         
-        int ret_exec = sqlite3_exec(ppdb, sentence_withdraw, NULL, NULL, &errmsg);
+        int ret_exec = sqlite3_exec(ppdb, sentence_change_account_status, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
-                memset(explain_msg, 0, M);
-                strncpy(explain_msg, errmsg, L);
-                *result_type = Fail;
+                printf("sqlite3_exec fail: %s", errmsg);
                 return;
         }
-        *result_type = Success;
         return;
 }
 
-void create_root_account_if_not_exitst(unsigned long int passwd) {
-        fd = fopen(ROOT_INI, "r+");
-        char flag[S] = "Root ini";
+void create_root_account_if_not_exits(unsigned long int passwd) {
+        printf("start create root\n");
+        FILE *fd = fopen(ROOT_INI, "w+x");
         if (fd != NULL) {
                 return;
         }
-        fwrite(flag, 1, S, fd);
-        char pk_key[L] = {0};
-        strncpy(pk_key, generate_account(passwd, result_type, explain_msg), L);
-        change_account_status(pk_key, 3);
+        unsigned char sk[L] = {0};
+        unsigned char pk[L] = {0};
+        generate_account(passwd, sk);
+        crypto_box_keypair(pk, sk);
+        fwrite(sk, 1, L, fd);
+        change_account_status(pk, 3);
+        printf("finish create root\n");
 }
 
-char* generate_account(unsigned long int passwd, Result_Type *result_type, char *explain_msg) {
+void generate_account(unsigned long int passwd, unsigned char *explain_msg) {
         if (sodium_init() < 0) {
                 fprintf(stderr, "libsodium init fail");
                 return;
@@ -65,8 +77,7 @@ char* generate_account(unsigned long int passwd, Result_Type *result_type, char 
         ret_exec = sqlite3_exec(ppdb, sentence_insert_passwd, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
                 printf("sqlite3_exec fail : %s", errmsg);
-                *result_type = Fail;
-                return NULL;
+                return;
         }
         
         char sentence_insert_account[L] = {0};
@@ -74,20 +85,41 @@ char* generate_account(unsigned long int passwd, Result_Type *result_type, char 
         ret_exec = sqlite3_exec(ppdb, sentence_insert_account, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
                 printf("sqlite3_exec fail : %s", errmsg);
-                *result_type = Fail;
-                return NULL;
+                return;
         }
 
-        *result_type = Success;
         strncpy(explain_msg, sk_hex, L);
+
         change_account_status(sk_hex, 0);
-        return public_key;
+        return;
+}
+
+void opt_delete_account(char *public_key, Result_Type *result_type, char *explain_msg) {
+        char sentence_delete_passwd[L] = {0};
+        snprintf(sentence_delete_passwd, L, "DELETE FROM %s WHERE public_key = '%s';", PASSWD_TABLE_NAME, public_key);
+        int ret_exec;
+        ret_exec = sqlite3_exec(ppdb, sentence_delete_passwd, NULL, NULL, &errmsg);
+        if (ret_exec == SQLITE_ERROR) {
+                printf("sqlite3_exec fail : %s", errmsg);
+                *result_type = Fail;
+                return;
+        }
+        char sentence_delete_account[L] = {0};
+        snprintf(sentence_delete_account, L, "DELETE FROM %s WHERE public_key = '%s';", ACCOUNT_TABLE_NAME, public_key);        
+        ret_exec = sqlite3_exec(ppdb, sentence_delete_account, NULL, NULL, &errmsg);
+        if (ret_exec == SQLITE_ERROR) {
+                printf("sqlite3_exec fail : %s", errmsg);
+                *result_type = Fail;
+                return;
+        }
+        *result_type = Success;
+        return;
 }
 
 sqlite3 *ppdb;
 char *errmsg;
 int ini_db() {          
-        void create_root_account_if_not_exitst(unsigned long int passwd);
+        printf("start ini db\n");
 
         int ret_open = sqlite3_open(DB_PATH, &ppdb);
         if (ret_open != SQLITE_OK) {
@@ -103,25 +135,27 @@ int ini_db() {
         char sentence_create_log[L] = {0};
         snprintf(sentence_create_log, L, "CREATE TABLE IF NOT EXISTS %s (table_id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT NOT NULL, operation_type TEXT NOT NULL, data INTEGER NOT NULL, detination TEXT NOT NULL, time TEXT NOT NULL);", LOG_TABLE_NAME);
         
-        int ret_exec = sqlite3_exec(ppdb, sentence_create_passwd, NULL, NULL, &errmsg);
+        int ret_exec;
+        ret_exec = sqlite3_exec(ppdb, sentence_create_passwd, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
                 printf("sqlite_exec fail: %s\n", errmsg);
                 return ERROR;
         }
         
-        int ret_exec = sqlite3_exec(ppdb, sentence_create_account, NULL, NULL, &errmsg);
+        ret_exec = sqlite3_exec(ppdb, sentence_create_account, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
                 printf("sqlite_exec fail: %s\n", errmsg);
                 return ERROR;
         }
         
-        int ret_exec = sqlite3_exec(ppdb, sentence_create_log, NULL, NULL, &errmsg);
+        ret_exec = sqlite3_exec(ppdb, sentence_create_log, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
                 printf("sqlite_exec fail: %s\n", errmsg);
                 return ERROR;
         }
 
-        create_root_user();
+        create_root_account_if_not_exits(123456);             // create root account
+        printf("ini db finish");
         return OK;
 }
 
@@ -167,7 +201,6 @@ void check_status(char *public_key, Result_Type *result_type, char *explain_msg)
 
 void check_illegal(MSG *msg, Result_Type *result_type, char *explain_msg, char *current_public_key) {
         if ((*result_type) == Fail) return;
-        char selecting_value[L] = {0};
         check_status(current_public_key, result_type, explain_msg);
         if ((*result_type) == Fail) return;
 
@@ -301,7 +334,7 @@ void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char 
 
         switch(msg->opt_type) {
                 case Delete_account:
-                        opt_delete_account(msg->dst, &result_type, explain_msg);
+                        opt_delete_account(msg->dst, result_type, explain_msg);
                         break;
                 case Query_self:
                         opt_query_self(msg, result_type, explain_msg, public_key);
