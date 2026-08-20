@@ -11,6 +11,7 @@
 #define PASSWD_TABLE_NAME "passwd"
 #define ACCOUNT_TABLE_NAME "account"
 #define LOG_TABLE_NAME "log"
+#define ROOT_INI "./root.txt"
 
 #define SEED_LEN 33
 #define KEY_LEN 33
@@ -18,9 +19,9 @@
 #define OK 0
 #define ERROR -1
 
-#define S 24
-#define M 64
-#define L 256
+#define S 64
+#define M 512
+#define L 1024
 typedef enum Opt_Type{
         Register,
         Login,
@@ -30,7 +31,10 @@ typedef enum Opt_Type{
         Deposit,
         Withdraw,
         Transfer,
-        Quit
+        Quit,
+        Freeze,
+        Defrost,
+        Query_log_root
 } opt_type;
 
 typedef enum Result_Type {
@@ -45,11 +49,20 @@ typedef struct MSG {
         unsigned long data;
 } MSG;
 
-typedef enum account_status {
+typedef enum Account_Status {
         Normal,         // 0 idle account
         Locked,         // 1 login in account
         Frozen,         // 2 block by root
-} account_status;
+        Root            // 3 root user
+} Account_Status;
+
+void change_account_status(char *public_key, Account_Status account_status);
+void opt_freeze(char *public_key);
+void opt_defrost(char *public_key);
+void opt_lock(char *public_key);
+
+char* generate_account(unsigned long int passwd, Result_Type *result_type, char *explain_msg);
+void create_root_account_if_not_exitst(unsigned long int passwd);
 
 extern sqlite3 *ppdb;
 extern char *errmsg;
@@ -67,6 +80,7 @@ void check_illegal(MSG *msg, Result_Type *result_type, char *explain_msg, char *
 
 void opt_query_self(MSG *msg, Result_Type *result_type, char *explain_msg, char *public_key);
 void opt_query_log(MSG *msg, Result_Type *result_type, char *explain_msg, char *public_key);
+void opt_query_log_root(MSG *msg, Result_Type *result_type, char *explain_msg, char *public_key);
 void opt_deposit(MSG *msg, Result_Type *result_type, char *explain_msg, char *public_key);
 void opt_withdraw(MSG *msg, Result_Type *result_type, char *explain_msg, char *public_ke);
 void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char *public_key);

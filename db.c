@@ -12,28 +12,116 @@ void int_to_char(unsigned long int num, char *buf) {
         snprintf(buf, 32, "%ld", num);
 }
 
+
+void change_account_status(char *public_key, Account_Status account_status) {
+        char sentence_change_account_status[L] = {0};
+        snprintf(sentence_change_account_status, L, "UPDATE %s SET account_status = %d WHERE public_key = '%s'", ACCOUNT_TABLE_NAME, account_status, public_key);
+        
+        int ret_exec = sqlite3_exec(ppdb, sentence_withdraw, NULL, NULL, &errmsg);
+        if (ret_exec == SQLITE_ERROR) {
+                memset(explain_msg, 0, M);
+                strncpy(explain_msg, errmsg, L);
+                *result_type = Fail;
+                return;
+        }
+        *result_type = Success;
+        return;
+}
+
+void create_root_account_if_not_exitst(unsigned long int passwd) {
+        fd = fopen(ROOT_INI, "r+");
+        char flag[S] = "Root ini";
+        if (fd != NULL) {
+                return;
+        }
+        fwrite(flag, 1, S, fd);
+        char pk_key[L] = {0};
+        strncpy(pk_key, generate_account(passwd, result_type, explain_msg), L);
+        change_account_status(pk_key, 3);
+}
+
+char* generate_account(unsigned long int passwd, Result_Type *result_type, char *explain_msg) {
+        if (sodium_init() < 0) {
+                fprintf(stderr, "libsodium init fail");
+                return;
+        }
+        unsigned char seed[SEED_LEN];
+        unsigned char secret_key[KEY_LEN];
+        unsigned char public_key[KEY_LEN];
+
+        randombytes_buf(seed, 32);
+
+        crypto_box_seed_keypair(public_key, secret_key, seed);
+
+        char pk_hex[KEY_LEN + 1];    
+        char sk_hex[KEY_LEN + 1];    
+
+        sodium_bin2hex(pk_hex, sizeof(pk_hex), public_key, KEY_LEN);
+        sodium_bin2hex(sk_hex, sizeof(sk_hex), secret_key, KEY_LEN);
+        //      write into db
+        char sentence_insert_passwd[L] = {0};
+        snprintf(sentence_insert_passwd, L, "INSERT INTO %s VALUES ( NULL, '%s', %lu);", PASSWD_TABLE_NAME, pk_hex, passwd);
+        int ret_exec;
+        ret_exec = sqlite3_exec(ppdb, sentence_insert_passwd, NULL, NULL, &errmsg);
+        if (ret_exec == SQLITE_ERROR) {
+                printf("sqlite3_exec fail : %s", errmsg);
+                *result_type = Fail;
+                return NULL;
+        }
+        
+        char sentence_insert_account[L] = {0};
+        snprintf(sentence_insert_account, L, "INSERT INTO %s( '%s', '%s', 0);", ACCOUNT_TABLE_NAME, pk_hex, "Normal");        
+        ret_exec = sqlite3_exec(ppdb, sentence_insert_account, NULL, NULL, &errmsg);
+        if (ret_exec == SQLITE_ERROR) {
+                printf("sqlite3_exec fail : %s", errmsg);
+                *result_type = Fail;
+                return NULL;
+        }
+
+        *result_type = Success;
+        strncpy(explain_msg, sk_hex, L);
+        change_account_status(sk_hex, 0);
+        return public_key;
+}
+
 sqlite3 *ppdb;
 char *errmsg;
 int ini_db() {          
+        void create_root_account_if_not_exitst(unsigned long int passwd);
+
         int ret_open = sqlite3_open(DB_PATH, &ppdb);
         if (ret_open != SQLITE_OK) {
                 printf("db open fail:%s\n", sqlite3_errmsg(ppdb));
                 return ERROR;
         }
         char sentence_create_passwd[L] = {0};                // create passwd table  
-        snprintf(sentence_create_passwd , L, "CREATE TABLE IF NOT EXISTS %s(id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT UNIQUE NOT NULL, passwd INTEGER NOT NULL,);", PASSWD_TABLE_NAME);
+        snprintf(sentence_create_passwd , L, "CREATE TABLE IF NOT EXISTS %s(id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT UNIQUE NOT NULL, passwd INTEGER NOT NULL);", PASSWD_TABLE_NAME);
         
         char sentence_create_account[L] = {0};
-        snprintf(sentence_create_account, L, "CREATE TABLE IF NOT EXISTS %s (public_key TEXT PRIMARY KEY NOT NULL, account_status TEXT NOT NULL, blance INTEGER NOT NULL);", ACCOUNT_TABLE_NAME);
+        snprintf(sentence_create_account, L, "CREATE TABLE IF NOT EXISTS %s (public_key TEXT PRIMARY KEY NOT NULL, account_status INTEGER NOT NULL DEFAULT 0, blance INTEGER NOT NULL DEFAULT 0);", ACCOUNT_TABLE_NAME);
         
         char sentence_create_log[L] = {0};
         snprintf(sentence_create_log, L, "CREATE TABLE IF NOT EXISTS %s (table_id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT NOT NULL, operation_type TEXT NOT NULL, data INTEGER NOT NULL, detination TEXT NOT NULL, time TEXT NOT NULL);", LOG_TABLE_NAME);
+        
+        int ret_exec = sqlite3_exec(ppdb, sentence_create_passwd, NULL, NULL, &errmsg);
+        if (ret_exec == SQLITE_ERROR) {
+                printf("sqlite_exec fail: %s\n", errmsg);
+                return ERROR;
+        }
         
         int ret_exec = sqlite3_exec(ppdb, sentence_create_account, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
                 printf("sqlite_exec fail: %s\n", errmsg);
                 return ERROR;
         }
+        
+        int ret_exec = sqlite3_exec(ppdb, sentence_create_log, NULL, NULL, &errmsg);
+        if (ret_exec == SQLITE_ERROR) {
+                printf("sqlite_exec fail: %s\n", errmsg);
+                return ERROR;
+        }
+
+        create_root_user();
         return OK;
 }
 
@@ -132,6 +220,29 @@ void opt_query_log(MSG *msg, Result_Type *result_type, char *explain_msg, char *
         return;
 }
 
+void opt_query_log_root(MSG *msg, Result_Type *result_type, char *explain_msg, char *public_key) {
+        char sentence_log[L] = {0};
+        snprintf(sentence_log, L, "SELECT * FROM %s LIMIT 100;", LOG_TABLE_NAME);
+
+        int ret = select_func(sentence_log);
+        if (ret == ERROR) {
+                memset(explain_msg, 0, L);
+                strncpy(explain_msg, errmsg, L);
+                *result_type = Fail;
+                return;
+        }
+        memset(explain_msg, 0, M);
+        int n = 0;
+        for (int i = nrow; i <= (nrow * ncolumn); i += 4) {
+                strcat(explain_msg, resultp[i + 1]);
+                strcat(explain_msg, resultp[i + 2]);
+                strcat(explain_msg, resultp[i + 3]);
+                strcat(explain_msg, "\n");
+        }
+        *result_type = Success;
+        return;
+}
+
 void opt_deposit(MSG *msg, Result_Type *result_type, char *explain_msg, char *public_key) {
         if ((*result_type) == Fail) return;
 
@@ -166,6 +277,21 @@ void opt_withdraw(MSG *msg, Result_Type *result_type, char *explain_msg, char *p
         return;
 }
 
+void opt_freeze(char *public_key) {
+        change_account_status(public_key, 2);   // frozen
+        return;
+}
+
+void opt_defrost(char *public_key) {
+        change_account_status(public_key, 0);   // normal
+        return;
+}
+
+void opt_lock(char *public_key) {
+        change_account_status(public_key, 1);   // lock
+        return;
+}
+
 char sentence_begin[S] = "START TRANSACTION;";
 char sentence_commit[S] = "COMMIT;";
 char sentence_rollback[S] = "ROLLBACK";
@@ -181,7 +307,7 @@ void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char 
                         opt_query_self(msg, result_type, explain_msg, public_key);
                         break;
                 case Query_log:
-                        opt_log_db(msg, public_key);
+                        opt_query_log(msg, result_type, explain_msg, public_key);
                         break;
                 case Deposit:
                         opt_deposit(msg, result_type, explain_msg, public_key);
@@ -237,8 +363,18 @@ void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char 
                                 return;
                         }
                         *result_type = Success;
-                        return;
+                        break;
                 }
+
+                case Freeze: 
+                        opt_freeze(public_key);
+                        break;
+                case Defrost:
+                        opt_defrost(public_key);
+                        break;
+                case Query_log_root:
+                        opt_query_log_root(msg, result_type, explain_msg, public_key);
+                        break;
                 default:
                         memset(explain_msg, 0, L);
                         strncpy(explain_msg, "operation not exist", L);

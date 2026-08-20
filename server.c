@@ -39,48 +39,6 @@ void send_func(int acceptfd, Result_MSG *result_msg) {
         return;
 }
 
-void generate_account(unsigned long int passwd, Result_Type *result_type, char *explain_msg) {
-        if (sodium_init() < 0) {
-                fprintf(stderr, "libsodium init fail");
-                return;
-        }
-        unsigned char seed[SEED_LEN];
-        unsigned char secret_key[KEY_LEN];
-        unsigned char public_key[KEY_LEN];
-
-        randombytes_buf(seed, 32);
-
-        crypto_box_seed_keypair(public_key, secret_key, seed);
-
-        char pk_hex[KEY_LEN + 1];    
-        char sk_hex[KEY_LEN + 1];    
-
-        sodium_bin2hex(pk_hex, sizeof(pk_hex), public_key, KEY_LEN);
-        sodium_bin2hex(sk_hex, sizeof(sk_hex), secret_key, KEY_LEN);
-        //      write into db
-        char sentence_insert_passwd[L] = {0};
-        snprintf(sentence_insert_passwd, L, "INSERT INTO %s VALUES (DEFAULT, '%s', %lu);", PASSWD_TABLE_NAME, pk_hex, passwd);
-        int ret_exec;
-        ret_exec = sqlite3_exec(ppdb, sentence_insert_passwd, NULL, NULL, &errmsg);
-        if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail : %s", errmsg);
-                *result_type = Fail;
-                return;
-        }
-        char sentence_insert_account[L] = {0};
-        snprintf(sentence_insert_account, L, "INSERT INTO %s( '%s', '%s', 0);", ACCOUNT_TABLE_NAME, pk_hex, "Normal");        
-        ret_exec = sqlite3_exec(ppdb, sentence_insert_account, NULL, NULL, &errmsg);
-        if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail : %s", errmsg);
-                *result_type = Fail;
-                return;
-        }
-
-        *result_type = Success;
-        strncpy(explain_msg, sk_hex, L);
-
-        return;
-}
 
 char current_user_public_key[L] = {0};
 void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islogin) {
@@ -90,7 +48,7 @@ void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islog
         crypto_box_keypair(pk_new, msg->dst);
         // check
         char sentence_search_public_key[L] = {0};
-        snprintf(sentence_search_public_key, L, "SELECT %s FROM %s WHERE public_key = %s", "account_status", ACCOUNT_TABLE_NAME, pk_new);
+        snprintf(sentence_search_public_key, L, "SELECT * FROM %s WHERE public_key = %s", ACCOUNT_TABLE_NAME, pk_new);
         int ret = select_func(sentence_search_public_key);
         if (ret == ERROR || nrow != 1) {
                 memset(explain_msg, 0, M);
@@ -99,17 +57,16 @@ void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islog
                 return;
         }
         if (!((strncmp(resultp[4], "Normal", 5) == 0) && (strlen(resultp[5]) == 5))) {
-
-        }
-        if (!(strncmp(resultp[3], pk_new, KEY_LEN) == 0)) {     
                 memset(explain_msg, 0, M);
                 strncpy(explain_msg, "status abnormal", L);        
                 *result_type = Fail;
                 return;
-        } 
-        
+        }
+
+        strncpy(current_user_public_key, pk_new, L);
+        opt_lock(current_user_public_key);      // lock
         *result_type = Success;
-        *islogin = 1;
+        *islogin = 0;
         return;
 }
 
@@ -212,7 +169,7 @@ int main(int argc, const char *argv[]) {
                         break;
                 } else if (pid == 0) {  // this is son process
                         ini_db();               
-                        int islogin = 0;
+                        int islogin = 1;
                         while(1) {
                                 MSG msg;
                                 int ret_recv = recv(acceptfd, &msg, sizeof(msg), 0);
@@ -227,16 +184,13 @@ int main(int argc, const char *argv[]) {
                                         // handle menu operation
                                         result_msg.result_type = handle_menu(acceptfd, &msg, explain_msg, &islogin);
                                         // check login
-                                        if (result_msg.result_type == Success && islogin == 1) {
+                                        if (result_msg.result_type == Success && islogin == 0) {
                                                 strncpy(current_user_public_key, msg.dst,L);
                                         }
 
                                         strncpy(result_msg.explain_msg, explain_msg, L);
                                         // send to client
                                         send_func(acceptfd, &result_msg);
-                                        if (msg.opt_type == Quit && result_msg.result_type == Success) {
-                                                break;
-                                        }
                                         // log if success
                                         if (result_msg.result_type == Success) {
                                                 opt_log_db(&msg, msg.dst);
@@ -251,6 +205,7 @@ int main(int argc, const char *argv[]) {
                                         send_func(acceptfd, &result_msg);
                                         if (msg.opt_type == Quit && result_msg.result_type == Success) {
                                                 islogin = 0;
+                                                opt_defrost(current_user_public_key);   // status into normal
                                         }
                                         // log if success
                                         if (result_msg.result_type == Success && msg.opt_type != Quit) {
@@ -264,10 +219,14 @@ int main(int argc, const char *argv[]) {
                         exit(EXIT_SUCCESS);
 
                 } else if (pid > 0) {   // this is dad process
+                        // root user
+
+                        //
                         close(acceptfd);
                         continue;
                 }
         }
+
         sleep(120);      // dad wait for sons
         close(acceptfd);
         close(listenfd);
