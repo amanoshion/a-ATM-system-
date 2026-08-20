@@ -12,9 +12,9 @@
 
 #define ERROR -1
 
-#define S 24
-#define M 64
-#define L 256
+#define S 128
+#define M 256
+#define L 512
 
 char *names_opt[] = {"Register", "Login", "Quit", "Delete_account", "Query_self", "Query_log", "Deposit", "Withdraw", "Transfer"};
 
@@ -103,16 +103,17 @@ int main(int argc, const char *argv[]) {
         int choose_operation;
         int status = 1;
         while(1) {
+                MSG msg;
+                msg.data = 0;
+                memset(msg.dst, 0, sizeof(msg.dst));
                 if (status == 1) {              // menu input
-                        MSG msg;
-                        msg.data = 0;
-                        memset(msg.dst, 0, sizeof(msg.dst));
-
                         show_menu();
                         scanf("%d", &choose_menu);
                         // char dst_buf[L] = {0};
                         switch(choose_menu) {
                                 case 1:         // Register
+                                        printf("input password\n");
+                                        scanf("%lu", &msg.data);
                                         msg.opt_type = Register;
 
                                         send_func(clientfd, &msg);
@@ -134,10 +135,6 @@ int main(int argc, const char *argv[]) {
                                         break;
                         }
                 } else if (status == 2) {       // operation input
-                        // ini msg
-                        MSG msg;
-                        msg.data = 0;
-                        memset(msg.dst, 0, sizeof(msg.dst));
 
                         show_operation();
                         scanf("%d", &choose_operation);
@@ -147,11 +144,10 @@ int main(int argc, const char *argv[]) {
                                         msg.opt_type = Delete_account;
 
                                         printf("input your secret key\n");
-                                        fgets(dst_buf, L, stdin);
+                                        scanf("%s", dst_buf);
                                         dst_buf[strcspn(dst_buf, "\n")] = '\0';
                                         strncpy(msg.dst, dst_buf, L);
                                         memset(dst_buf, 0, L);
-
                                         send_func(clientfd, &msg);
                                         break;
                                 case 2:         // query self
@@ -160,6 +156,7 @@ int main(int argc, const char *argv[]) {
                                         break;
                                 case 3:         // query log
                                         msg.opt_type = Query_log;
+                                        send_func(clientfd, &msg);
                                         break;
                                 case 4:         // deposit
                                         msg.opt_type = Deposit;
@@ -181,7 +178,7 @@ int main(int argc, const char *argv[]) {
                                         msg.opt_type = Transfer;
 
                                         printf("input dst account s public key\n");
-                                        fgets(dst_buf, L, stdin);
+                                        scanf("%s", dst_buf);
                                         dst_buf[strcspn(dst_buf, "\n")] = '\0';
                                         strncpy(msg.dst, dst_buf, L);
                                         memset(dst_buf, 0, L);
@@ -199,10 +196,6 @@ int main(int argc, const char *argv[]) {
                                         break;
                         }
                 } else if (status == 3) {
-                        MSG msg;
-                        msg.data = 0;
-                        memset(msg.dst, 0, sizeof(msg.dst));
-
                         show_root();
                         scanf("%d", &choose_menu);
                         char dst_buf[L] = {0};
@@ -222,7 +215,7 @@ int main(int argc, const char *argv[]) {
                                         break;
 
                                 case 3:         // query full log
-                                        msg.opt_type = Query_log;
+                                        msg.opt_type = Query_log_root;
                                         send_func(clientfd, &msg);
                                         break;
 
@@ -240,6 +233,9 @@ int main(int argc, const char *argv[]) {
                         perror("recv fail");
                 } else {
                         printf("recv msg success\n");
+                }
+                if ((result_msg.result_type == Success) && (msg.opt_type == Login)) {
+                        status = 2;
                 }
                 // print result
                 printf("%s: %s\n", names_result[result_msg.result_type], result_msg.explain_msg);

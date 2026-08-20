@@ -14,15 +14,28 @@
 #define LOG_TABLE_NAME "log"
 #define ROOT_INI "./root.txt"
 
-#define SEED_LEN 33
-#define KEY_LEN 33
+#define SEED_LEN 32
+#define KEY_LEN 32
 
 #define OK 0
 #define ERROR -1
 
-#define S 64
-#define M 512
-#define L 1024
+#define S 128
+#define M 256
+#define L 512
+
+// char sentence_create_passwd[L] = {0}; 
+// snprintf(sentence_create_passwd , L, "CREATE TABLE IF NOT EXISTS %s
+//(id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT UNIQUE NOT NULL, passwd INTEGER NOT NULL);", PASSWD_TABLE_NAME);
+
+// char sentence_create_account[L] = {0};
+// snprintf(sentence_create_account, L, "CREATE TABLE IF NOT EXISTS %s 
+// (public_key TEXT PRIMARY KEY NOT NULL, account_status INTEGER NOT NULL DEFAULT 0, blance INTEGER NOT NULL DEFAULT 0);", ACCOUNT_TABLE_NAME);
+
+// char sentence_create_log[L] = {0};
+// snprintf(sentence_create_log, L, "CREATE TABLE IF NOT EXISTS %s 
+// (table_id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT NOT NULL, operation_type TEXT NOT NULL, data INTEGER NOT NULL, detination TEXT NOT NULL, time TEXT NOT NULL);", LOG_TABLE_NAME);
+
 typedef enum Opt_Type{
         Register,
         Login,
@@ -56,6 +69,9 @@ typedef enum Account_Status {
         Frozen,         // 2 block by root
         Root            // 3 root user
 } Account_Status;
+
+unsigned long char_to_int(char *str);
+void int_to_char(unsigned long int num, char *buf);
 
 void change_account_status(char *public_key, Account_Status account_status);
 void opt_freeze(char *public_key);

@@ -38,18 +38,35 @@ void change_account_status(char *public_key, Account_Status account_status) {
 }
 
 void create_root_account_if_not_exits(unsigned long int passwd) {
+        unsigned char pk_bin[KEY_LEN] = {0};
+        char pk_hex[KEY_LEN * 2 + 1] = {0};
+        
+        unsigned char sk_bin[KEY_LEN] = {0};
+        char sk_hex[KEY_LEN * 2 + 1] = {0};
+
         printf("start create root\n");
         FILE *fd = fopen(ROOT_INI, "w+x");
         if (fd != NULL) {
+                fclose(fd);
                 return;
         }
-        unsigned char sk[L] = {0};
-        unsigned char pk[L] = {0};
-        generate_account(passwd, sk);
-        crypto_box_keypair(pk, sk);
-        fwrite(sk, 1, L, fd);
-        change_account_status(pk, 3);
-        printf("finish create root\n");
+        printf("creating root . . .\n");
+        fd = fopen(ROOT_INI, "w");
+        if (fd == NULL) {
+                perror("fopen fail");
+                return;
+        }
+        generate_account(passwd, sk_hex);
+
+        fwrite(sk_hex, 1, L, fd);
+
+        // get pk_hex to change status
+        sodium_hex2bin(sk_bin, 32, sk_hex, 64, NULL, NULL, NULL);
+        crypto_scalarmult_base(pk_bin, sk_bin);
+        sodium_bin2hex(pk_hex, sizeof(pk_hex), pk_bin, KEY_LEN);
+        
+        change_account_status(pk_hex, Root);
+        printf("root created\n");
 }
 
 void generate_account(unsigned long int passwd, unsigned char *explain_msg) {
@@ -65,14 +82,14 @@ void generate_account(unsigned long int passwd, unsigned char *explain_msg) {
 
         crypto_box_seed_keypair(public_key, secret_key, seed);
 
-        char pk_hex[KEY_LEN + 1];    
-        char sk_hex[KEY_LEN + 1];    
+        char pk_hex[KEY_LEN*2 + 1];    
+        char sk_hex[KEY_LEN*2 + 1];    
 
         sodium_bin2hex(pk_hex, sizeof(pk_hex), public_key, KEY_LEN);
         sodium_bin2hex(sk_hex, sizeof(sk_hex), secret_key, KEY_LEN);
         //      write into db
         char sentence_insert_passwd[L] = {0};
-        snprintf(sentence_insert_passwd, L, "INSERT INTO %s VALUES ( NULL, '%s', %lu);", PASSWD_TABLE_NAME, pk_hex, passwd);
+        snprintf(sentence_insert_passwd, L, "INSERT INTO %s (public_key, passwd) VALUES ( '%s', %lu);", PASSWD_TABLE_NAME, pk_hex, passwd);
         int ret_exec;
         ret_exec = sqlite3_exec(ppdb, sentence_insert_passwd, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
@@ -81,7 +98,7 @@ void generate_account(unsigned long int passwd, unsigned char *explain_msg) {
         }
         
         char sentence_insert_account[L] = {0};
-        snprintf(sentence_insert_account, L, "INSERT INTO %s( '%s', '%s', 0);", ACCOUNT_TABLE_NAME, pk_hex, "Normal");        
+        snprintf(sentence_insert_account, L, "INSERT INTO %s (public_key) VALUES( '%s');", ACCOUNT_TABLE_NAME, pk_hex);        
         ret_exec = sqlite3_exec(ppdb, sentence_insert_account, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
                 printf("sqlite3_exec fail : %s", errmsg);
@@ -89,14 +106,14 @@ void generate_account(unsigned long int passwd, unsigned char *explain_msg) {
         }
 
         strncpy(explain_msg, sk_hex, L);
-
-        change_account_status(sk_hex, 0);
+        // change status to noraml
+        change_account_status(pk_hex, 0);
         return;
 }
 
-void opt_delete_account(char *public_key, Result_Type *result_type, char *explain_msg) {
+void opt_delete_account(char *current_public_key, Result_Type *result_type, char *explain_msg) {
         char sentence_delete_passwd[L] = {0};
-        snprintf(sentence_delete_passwd, L, "DELETE FROM %s WHERE public_key = '%s';", PASSWD_TABLE_NAME, public_key);
+        snprintf(sentence_delete_passwd, L, "DELETE FROM %s WHERE public_key = '%s';", PASSWD_TABLE_NAME, current_public_key);
         int ret_exec;
         ret_exec = sqlite3_exec(ppdb, sentence_delete_passwd, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
@@ -105,7 +122,7 @@ void opt_delete_account(char *public_key, Result_Type *result_type, char *explai
                 return;
         }
         char sentence_delete_account[L] = {0};
-        snprintf(sentence_delete_account, L, "DELETE FROM %s WHERE public_key = '%s';", ACCOUNT_TABLE_NAME, public_key);        
+        snprintf(sentence_delete_account, L, "DELETE FROM %s WHERE public_key = '%s';", ACCOUNT_TABLE_NAME, current_public_key);        
         ret_exec = sqlite3_exec(ppdb, sentence_delete_account, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
                 printf("sqlite3_exec fail : %s", errmsg);
@@ -189,13 +206,15 @@ void check_status(char *public_key, Result_Type *result_type, char *explain_msg)
                 return;
         }
 
-        if ((strncmp(resultp[4], "Normal", 6) == 0) && (strlen(resultp[5]) == 5 )) {     
+        if ((strncmp(resultp[4], "Normal", 6) == 0) && (strlen(resultp[4]) == strlen("Normal"))) {     
                 *result_type = Success;
         } else {
                 memset(explain_msg, 0, M);
                 strncpy(explain_msg, "status abnormal", L);        
                 *result_type = Fail;
         }
+
+        sqlite3_free_table(resultp);
         return;
 }
 
@@ -204,8 +223,8 @@ void check_illegal(MSG *msg, Result_Type *result_type, char *explain_msg, char *
         check_status(current_public_key, result_type, explain_msg);
         if ((*result_type) == Fail) return;
 
-        if ((*result_type) == Transfer) {
-                check_status(msg->dst, result_type, explain_msg);
+        if ((msg->opt_type) == Transfer) {
+                check_status(current_public_key, result_type, explain_msg);
                 if ((*result_type) == Fail) return;
         }
         *result_type = Success;
@@ -227,12 +246,14 @@ void opt_query_self(MSG *msg, Result_Type *result_type, char *explain_msg, char 
                 strncat(explain_msg, resultp[i], L);
         }
         *result_type = Success;
+
+        sqlite3_free_table(resultp);
         return;
 }
 
 void opt_query_log(MSG *msg, Result_Type *result_type, char *explain_msg, char *public_key) {
         char sentence_log[L] = {0};
-        snprintf(sentence_log, L, "SELECT * FROM %s WHERE public_key = '%s' OR dst = '%s' ORDER BY DESC LIMIT 50;", LOG_TABLE_NAME, public_key, public_key);
+        snprintf(sentence_log, L, "SELECT * FROM %s WHERE public_key = '%s' OR destination = '%s' ORDER BY time DESC LIMIT 50;", LOG_TABLE_NAME, public_key, public_key);
 
         int ret = select_func(sentence_log);
         if (ret == ERROR) {
@@ -243,13 +264,18 @@ void opt_query_log(MSG *msg, Result_Type *result_type, char *explain_msg, char *
         }
         memset(explain_msg, 0, M);
         int n = 0;
-        for (int i = nrow; i <= (nrow * ncolumn); i += 4) {
+        for (int i = ncolumn; i <= (nrow * ncolumn); i += 6) {
+                strcat(explain_msg, resultp[i + 0]);
                 strcat(explain_msg, resultp[i + 1]);
                 strcat(explain_msg, resultp[i + 2]);
                 strcat(explain_msg, resultp[i + 3]);
+                strcat(explain_msg, resultp[i + 4]);
+                strcat(explain_msg, resultp[i + 5]);
                 strcat(explain_msg, "\n");
         }
         *result_type = Success;
+
+        sqlite3_free_table(resultp);
         return;
 }
 
@@ -266,13 +292,18 @@ void opt_query_log_root(MSG *msg, Result_Type *result_type, char *explain_msg, c
         }
         memset(explain_msg, 0, M);
         int n = 0;
-        for (int i = nrow; i <= (nrow * ncolumn); i += 4) {
+        for (int i = ncolumn; i <= (nrow * ncolumn); i += 6) {
+                strcat(explain_msg, resultp[i + 0]);
                 strcat(explain_msg, resultp[i + 1]);
                 strcat(explain_msg, resultp[i + 2]);
                 strcat(explain_msg, resultp[i + 3]);
+                strcat(explain_msg, resultp[i + 4]);
+                strcat(explain_msg, resultp[i + 5]);
                 strcat(explain_msg, "\n");
         }
         *result_type = Success;
+
+        sqlite3_free_table(resultp);
         return;
 }
 
@@ -334,7 +365,7 @@ void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char 
 
         switch(msg->opt_type) {
                 case Delete_account:
-                        opt_delete_account(msg->dst, result_type, explain_msg);
+                        opt_delete_account(public_key, result_type, explain_msg);
                         break;
                 case Query_self:
                         opt_query_self(msg, result_type, explain_msg, public_key);
@@ -388,13 +419,13 @@ void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char 
                 }
                 case Quit:
                 {
-                        int ret = close_db();
-                        if (ret != OK) {
-                                memset(explain_msg, 0, L);
-                                strncpy(explain_msg, errmsg, L);
-                                *result_type = Fail;
-                                return;
-                        }
+                        // int ret = close_db();
+                        // if (ret != OK) {
+                        //         memset(explain_msg, 0, L);
+                        //         strncpy(explain_msg, errmsg, L);
+                        //         *result_type = Fail;
+                        //         return;
+                        // }
                         *result_type = Success;
                         break;
                 }
@@ -436,7 +467,7 @@ void opt_log_db(MSG *msg, char *public_key) {
         } else {
                 strncpy(dst, public_key, L);
         }
-        snprintf(sentence_insert_log, L, "INSERT INTO %s VALUES ('%s', '%s', %lu, '%s', '%s');", LOG_TABLE_NAME, public_key, names_opt[msg->opt_type], msg->data, dst, time_buffer);
+        snprintf(sentence_insert_log, L, "INSERT INTO %s ( public_key, operation_type, data, detination, time) VALUES ('%s', '%s', %lu, '%s', '%s');", LOG_TABLE_NAME, public_key, names_opt[msg->opt_type], msg->data, msg->dst, time_buffer);
 
         int ret_exec = sqlite3_exec(ppdb, sentence_insert_log, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {

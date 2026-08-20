@@ -1,5 +1,5 @@
 CC 		= gcc
-CFLAGS 		= -Wall
+CFLAGS 		= -g -Wall
 LDFLAGS 	= -lsqlite3 -lsodium
 
 TARGETS 	= server.out client.out

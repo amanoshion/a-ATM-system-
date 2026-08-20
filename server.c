@@ -37,16 +37,41 @@ void send_func(int acceptfd, Result_MSG *result_msg) {
 }
 
 
-char current_user_public_key[L] = {0};
-void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islogin) {
-        unsigned char pk_new[KEY_LEN];
-        unsigned long int passwd;
+void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islogin, char *current_public_key) { //current_public_key here for getting value
+        unsigned char pk_bin[KEY_LEN] = {0};
+        char pk_hex[KEY_LEN * 2 + 1] = {0};
+        unsigned char sk_bin[KEY_LEN] = {0};
         
-        crypto_box_keypair(pk_new, msg->dst);
-        // check
-        char sentence_search_public_key[L] = {0};
-        snprintf(sentence_search_public_key, L, "SELECT * FROM %s WHERE public_key = %s", ACCOUNT_TABLE_NAME, pk_new);
-        int ret = select_func(sentence_search_public_key);
+        sodium_hex2bin(sk_bin, 32, msg->dst, 64, NULL, NULL, NULL);
+
+        crypto_scalarmult_base(pk_bin, sk_bin);
+        sodium_bin2hex(pk_hex, sizeof(pk_hex), pk_bin, KEY_LEN);
+        // check passwd
+        char sentence_check_passwd[L] = {0};
+        snprintf(sentence_check_passwd, L, "SELECT passwd FROM %s WHERE public_key = '%s'", PASSWD_TABLE_NAME, pk_hex);
+
+        int ret;
+        ret = select_func(sentence_check_passwd);
+        if (ret == ERROR || nrow != 1) {
+                memset(explain_msg, 0, M);
+                strncpy(explain_msg, "no user or system error", L);
+                *result_type = Fail;
+                return;
+        }
+
+        unsigned long passwd = char_to_int(resultp[5]);
+
+        if (!(passwd == msg->data)) {
+                memset(explain_msg, 0, M);
+                strncpy(explain_msg, "status abnormal", L);        
+                *result_type = Fail;
+                return;
+        }
+        // check status
+        char sentence_check_status[L] = {0};
+        snprintf(sentence_check_status, L, "SELECT * FROM %s WHERE public_key = '%s'", ACCOUNT_TABLE_NAME, pk_hex);
+
+        ret = select_func(sentence_check_status);
         if (ret == ERROR || nrow != 1) {
                 memset(explain_msg, 0, M);
                 strncpy(explain_msg, "no user or system error", L);
@@ -59,22 +84,24 @@ void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islog
                 *result_type = Fail;
                 return;
         }
-
-        strncpy(current_user_public_key, pk_new, L);
-        opt_lock(current_user_public_key);      // lock
+        
+        strncpy(current_public_key, pk_hex, L);
+        opt_lock(current_public_key);      // lock
         *result_type = Success;
         *islogin = 1;
+
+        sqlite3_free_table(resultp);
         return;
 }
 
-Result_Type handle_menu(int acceptfd, MSG *msg, char *explain_msg, int *islogin) {
+Result_Type handle_menu(int acceptfd, MSG *msg, char *explain_msg, int *islogin, char *current_public_key) {
         Result_Type result_type = Success;
         switch(msg->opt_type) {
                 case Register:  
                         generate_account(msg->data, explain_msg);
                         break;
                 case Login:
-                        opt_login(msg, &result_type, explain_msg, islogin);
+                        opt_login(msg, &result_type, explain_msg, islogin, current_public_key);
                         break;
                 default:
                         break;
@@ -82,13 +109,13 @@ Result_Type handle_menu(int acceptfd, MSG *msg, char *explain_msg, int *islogin)
         return result_type;
 }
 
-Result_Type handle_client_opt(int acceptfd, MSG *msg, char *explain_msg) {   
+Result_Type handle_client_opt(int acceptfd, MSG *msg, char *explain_msg, char *current_public_key) {   
         Result_Type result_type = Unknown;    
         
-        check_illegal(msg, &result_type, explain_msg, current_user_public_key);         // check status and opt type
+        check_illegal(msg, &result_type, explain_msg, current_public_key);         // check status and opt type
 
-        opt_account_db(msg, &result_type, explain_msg, current_user_public_key);           
-        opt_log_db(msg, current_user_public_key);               
+        opt_account_db(msg, &result_type, explain_msg, current_public_key);           
+        opt_log_db(msg, current_public_key);               
 
         return result_type;
 }
@@ -146,7 +173,7 @@ int main(int argc, const char *argv[]) {
                         close(acceptfd);
                         break;
                 } else if (pid == 0) {  // this is son process
-                                       
+                        char current_user_public_key[L] = {0};
                         int islogin = 0;
                         while(1) {
                                 MSG msg;
@@ -160,7 +187,7 @@ int main(int argc, const char *argv[]) {
                                         Result_MSG result_msg;
                                         char explain_msg[L] = {0};
                                         // handle menu operation
-                                        result_msg.result_type = handle_menu(acceptfd, &msg, explain_msg, &islogin);
+                                        result_msg.result_type = handle_menu(acceptfd, &msg, explain_msg, &islogin, current_user_public_key);
                                         // check login
                                         if (result_msg.result_type == Success && islogin == 1) {
                                                 strncpy(current_user_public_key, msg.dst,L);
@@ -177,7 +204,7 @@ int main(int argc, const char *argv[]) {
                                         Result_MSG result_msg;
                                         // handle operation
                                         char explain_msg[L] = {0};
-                                        result_msg.result_type = handle_client_opt(acceptfd, &msg, explain_msg);
+                                        result_msg.result_type = handle_client_opt(acceptfd, &msg, explain_msg, current_user_public_key);
                                         strncpy(result_msg.explain_msg, explain_msg, L);
                                         // send to client
                                         send_func(acceptfd, &result_msg);
