@@ -161,7 +161,7 @@ int main(int argc, const char *argv[]) {
                                         msg.opt_type = Query_self;
                                         break;
                                 case 3:         // query log
-                                        msg.opt_type = Query_log;
+                                        msg.opt_type = Query_log_root;
                                         break;
                                 case 4:         // deposit
                                         msg.opt_type = Deposit;

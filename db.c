@@ -46,7 +46,7 @@ void create_root_account_if_not_exits(unsigned long int passwd) {
         char sk_hex[KEY_HEX_LEN] = {0};
 
         printf("start create root\n");
-        FILE *fd = fopen(ROOT_INI, "w+x");
+        FILE *fd = fopen(ROOT_INI, "wx");
         if (fd == NULL) {
                 return;
         }
@@ -54,14 +54,18 @@ void create_root_account_if_not_exits(unsigned long int passwd) {
 
         generate_account(passwd, sk_hex);
 
-        fwrite(sk_hex, 1, KEY_HEX_LEN, fd);
-
+        int ret = fwrite(sk_hex, 1, 64, fd);
+        if (ret < 0) {
+                perror("fwrite fail");
+        }
         // get pk_hex to change status
         sodium_hex2bin(sk_bin, 32, sk_hex, 64, NULL, NULL, NULL);
         crypto_scalarmult_base(pk_bin, sk_bin);
         sodium_bin2hex(pk_hex, sizeof(pk_hex), pk_bin, KEY_LEN);
         
         change_account_status(pk_hex, Root);
+
+        fclose(fd);
         printf("root created\n");
 }
 

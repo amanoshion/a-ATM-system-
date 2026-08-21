@@ -142,7 +142,8 @@ int main(int argc, const char *argv[]) {
         server_addr.sin_addr.s_addr = inet_addr(SERVER_IP);
 
         socklen_t serveraddr_len = sizeof(server_addr);
-
+        int reuse = 1;
+        setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
         if (-1 == bind(listenfd, (struct sockaddr *)&server_addr, serveraddr_len)) {
                 perror("bind fail");
                 return ERROR;
