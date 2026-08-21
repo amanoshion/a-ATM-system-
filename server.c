@@ -39,7 +39,7 @@ void send_func(int acceptfd, Result_MSG *result_msg) {
 
 void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islogin, char *current_public_key) { //current_public_key here for getting value
         unsigned char pk_bin[KEY_LEN] = {0};
-        char pk_hex[KEY_LEN * 2 + 1] = {0};
+        char pk_hex[KEY_HEX_LEN] = {0};
         unsigned char sk_bin[KEY_LEN] = {0};
         
         sodium_hex2bin(sk_bin, 32, msg->dst, 64, NULL, NULL, NULL);
@@ -59,7 +59,7 @@ void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islog
                 return;
         }
 
-        unsigned long passwd = char_to_int(resultp[5]);
+        unsigned long int passwd = char_to_int(resultp[1]);
 
         if (!(passwd == msg->data)) {
                 memset(explain_msg, 0, M);
@@ -78,23 +78,26 @@ void opt_login(MSG *msg, Result_Type *result_type, char *explain_msg, int *islog
                 *result_type = Fail;
                 return;
         }
-        if (!((strncmp(resultp[4], "Normal", 5) == 0) && (strlen(resultp[5]) == 5))) {
+        if (!((atoi(resultp[1]) == Normal) || atoi(resultp[1]) == Root)) {
                 memset(explain_msg, 0, M);
                 strncpy(explain_msg, "status abnormal", L);        
                 *result_type = Fail;
                 return;
         }
-        
         strncpy(current_public_key, pk_hex, L);
-        opt_lock(current_public_key);      // lock
+        memset(explain_msg, 0, L);
         *result_type = Success;
         *islogin = 1;
+        printf("a client login in\n");
+
+        opt_lock(current_public_key);   // lock 
 
         sqlite3_free_table(resultp);
         return;
 }
 
 Result_Type handle_menu(int acceptfd, MSG *msg, char *explain_msg, int *islogin, char *current_public_key) {
+        memset(explain_msg, 0, L);
         Result_Type result_type = Success;
         switch(msg->opt_type) {
                 case Register:  
@@ -103,6 +106,10 @@ Result_Type handle_menu(int acceptfd, MSG *msg, char *explain_msg, int *islogin,
                 case Login:
                         opt_login(msg, &result_type, explain_msg, islogin, current_public_key);
                         break;
+                case Login_root:
+                        opt_login(msg, &result_type, explain_msg, islogin, current_public_key);
+                        break;
+
                 default:
                         break;
         }
@@ -110,7 +117,7 @@ Result_Type handle_menu(int acceptfd, MSG *msg, char *explain_msg, int *islogin,
 }
 
 Result_Type handle_client_opt(int acceptfd, MSG *msg, char *explain_msg, char *current_public_key) {   
-        Result_Type result_type = Unknown;    
+        Result_Type result_type = Success;    
         
         check_illegal(msg, &result_type, explain_msg, current_public_key);         // check status and opt type
 
@@ -153,8 +160,6 @@ int main(int argc, const char *argv[]) {
         int acceptfd = 0;
         pid_t pid = 0;
 
-        ini_db();
-
         // recycle son process
         signal(SIGCHLD, sig_recycle);
         while(1) {
@@ -175,25 +180,29 @@ int main(int argc, const char *argv[]) {
                 } else if (pid == 0) {  // this is son process
                         char current_user_public_key[L] = {0};
                         int islogin = 0;
+                        ini_db();
+
                         while(1) {
                                 MSG msg;
                                 int ret_recv = recv(acceptfd, &msg, sizeof(msg), 0);
                                 if (ret_recv == -1) {
                                         perror("recv fail");
+                                        continue;
+                                } else if (ret_recv == 0){
+                                        printf("client close connection\n");;
+                                        break;
                                 } else {
                                         printf("recv msg success\n");
                                 }
                                 if (!islogin) {
-                                        Result_MSG result_msg;
+                                        Result_MSG result_msg = {0};
                                         char explain_msg[L] = {0};
                                         // handle menu operation
                                         result_msg.result_type = handle_menu(acceptfd, &msg, explain_msg, &islogin, current_user_public_key);
-                                        // check login
-                                        if (result_msg.result_type == Success && islogin == 1) {
-                                                strncpy(current_user_public_key, msg.dst,L);
+                                        if (result_msg.result_type == Success) {
+                                                strncpy(result_msg.explain_msg, explain_msg, L);
                                         }
-
-                                        strncpy(result_msg.explain_msg, explain_msg, L);
+                                       
                                         // send to client
                                         send_func(acceptfd, &result_msg);
                                         // log if success
@@ -224,15 +233,13 @@ int main(int argc, const char *argv[]) {
                         exit(EXIT_SUCCESS);
 
                 } else if (pid > 0) {   // this is dad process
-                        // root user
 
-                        //
                         close(acceptfd);
                         continue;
                 }
         }
 
-        sleep(120);      // dad wait for sons
+        sleep(180);      // dad wait for sons
         close(acceptfd);
         close(listenfd);
         return 0;

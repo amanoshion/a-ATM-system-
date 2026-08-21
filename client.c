@@ -14,11 +14,11 @@
 
 #define S 128
 #define M 256
-#define L 512
+#define L 1024
 
 char *names_opt[] = {"Register", "Login", "Quit", "Delete_account", "Query_self", "Query_log", "Deposit", "Withdraw", "Transfer"};
 
-char *names_result[] = {"Success", "Fail", "Tips"};
+char *names_result[] = {"Fail", "Success"};
 
 typedef enum Opt_Type{
         Register,
@@ -32,19 +32,19 @@ typedef enum Opt_Type{
         Quit,
         Freeze,
         Defrost,
-        Query_log_root
+        Query_log_root,
+        Login_root
 } opt_type;
 
 typedef struct MSG {
         opt_type opt_type;
-        unsigned char dst[S];
-        unsigned long data;
+        unsigned char dst[L];
+        unsigned long int data;
 } MSG;
 
 typedef enum Result_Type {
-        Fail = -1,
-        Success = 0,
-        Unknown = 1
+        Fail = 0,
+        Success = 1,
 } Result_Type;
 
 typedef struct Result_MSG {
@@ -55,6 +55,7 @@ typedef struct Result_MSG {
 void show_menu() {
         printf("1) \tRegister\n");
         printf("2) \tLogin\n");
+        printf("3) \tLogin in root\n");
 }
 
 void show_operation() {
@@ -76,7 +77,7 @@ void show_root() {
 
 void send_func(int clientfd, MSG *pmsg) {
         send(clientfd, pmsg, sizeof(*pmsg), 0);
-        memset(pmsg, 0, sizeof(*pmsg));
+        // memset(pmsg, 0, sizeof(*pmsg));
 }
 
 int main(int argc, const char *argv[]) {
@@ -116,7 +117,6 @@ int main(int argc, const char *argv[]) {
                                         scanf("%lu", &msg.data);
                                         msg.opt_type = Register;
 
-                                        send_func(clientfd, &msg);
                                         break;
                                 case 2:         // Login
                                         msg.opt_type = Login;
@@ -131,7 +131,20 @@ int main(int argc, const char *argv[]) {
                                         printf("input password\n");
                                         scanf("%lu", &msg.data);
 
-                                        send_func(clientfd, &msg);
+                                        break;
+                                case 3:         // login in root
+                                        msg.opt_type = Login_root;
+
+                                        printf("input your secret key\n");
+                                        // fgets(dst_buf, L, stdin);
+                                        scanf("%s", msg.dst);
+                                        // dst_buf[strcspn(dst_buf, "\n")] = '\0';
+                                        // strncpy(msg.dst, dst_buf, L);
+                                        // memset(dst_buf, 0, L);
+
+                                        printf("input password\n");
+                                        scanf("%lu", &msg.data);
+
                                         break;
                         }
                 } else if (status == 2) {       // operation input
@@ -143,20 +156,12 @@ int main(int argc, const char *argv[]) {
                                 case 1:         // delete account
                                         msg.opt_type = Delete_account;
 
-                                        printf("input your secret key\n");
-                                        scanf("%s", dst_buf);
-                                        dst_buf[strcspn(dst_buf, "\n")] = '\0';
-                                        strncpy(msg.dst, dst_buf, L);
-                                        memset(dst_buf, 0, L);
-                                        send_func(clientfd, &msg);
                                         break;
                                 case 2:         // query self
                                         msg.opt_type = Query_self;
-                                        send_func(clientfd, &msg);
                                         break;
                                 case 3:         // query log
                                         msg.opt_type = Query_log;
-                                        send_func(clientfd, &msg);
                                         break;
                                 case 4:         // deposit
                                         msg.opt_type = Deposit;
@@ -164,14 +169,12 @@ int main(int argc, const char *argv[]) {
                                         printf("input money for deposit\n");
                                         scanf("%lu", &msg.data);
 
-                                        send_func(clientfd, &msg);
                                         break;
                                 case 5:         // withdraw
                                         msg.opt_type = Withdraw;
                                         printf("input money for withdraw\n");
                                         scanf("%lu", &msg.data);
 
-                                        send_func(clientfd, &msg);
                                         break;
 
                                 case 6:                 // Transfer
@@ -186,12 +189,10 @@ int main(int argc, const char *argv[]) {
                                         printf("input money account you want to transfer\n");
                                         scanf("%lu", &msg.data);
 
-                                        send_func(clientfd, &msg);
                                         break;
                                 case 7:                 // quit
                                         status = 1;
                                         msg.opt_type = Quit;
-                                        send_func(clientfd, &msg);
                                         
                                         break;
                         }
@@ -204,28 +205,25 @@ int main(int argc, const char *argv[]) {
                                         msg.opt_type = Freeze;
                                         printf("input public key\n");
                                         scanf("%s", msg.dst);
-                                        send_func(clientfd, &msg);
-
                                         break;
                                 case 2:         // Login
                                         msg.opt_type = Defrost;
                                         printf("input public key\n");
                                         scanf("%s", msg.dst);
-                                        send_func(clientfd, &msg);
                                         break;
 
                                 case 3:         // query full log
                                         msg.opt_type = Query_log_root;
-                                        send_func(clientfd, &msg);
                                         break;
 
                                 case 4:                 // quit
                                         status = 1;
                                         msg.opt_type = Quit;
-                                        send_func(clientfd, &msg);
                                         break;
                         }
                 }
+                send_func(clientfd, &msg);
+
 
                 Result_MSG result_msg;
                 int ret_recv = recv(clientfd, &result_msg, sizeof(result_msg), 0);
@@ -236,6 +234,8 @@ int main(int argc, const char *argv[]) {
                 }
                 if ((result_msg.result_type == Success) && (msg.opt_type == Login)) {
                         status = 2;
+                } else if ((result_msg.result_type == Success) && (msg.opt_type == Login_root)) {
+                        status = 3;
                 }
                 // print result
                 printf("%s: %s\n", names_result[result_msg.result_type], result_msg.explain_msg);

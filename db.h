@@ -16,13 +16,13 @@
 
 #define SEED_LEN 32
 #define KEY_LEN 32
-
+#define KEY_HEX_LEN 65
 #define OK 0
 #define ERROR -1
 
 #define S 128
 #define M 256
-#define L 512
+#define L 1024
 
 // char sentence_create_passwd[L] = {0}; 
 // snprintf(sentence_create_passwd , L, "CREATE TABLE IF NOT EXISTS %s
@@ -30,11 +30,11 @@
 
 // char sentence_create_account[L] = {0};
 // snprintf(sentence_create_account, L, "CREATE TABLE IF NOT EXISTS %s 
-// (public_key TEXT PRIMARY KEY NOT NULL, account_status INTEGER NOT NULL DEFAULT 0, blance INTEGER NOT NULL DEFAULT 0);", ACCOUNT_TABLE_NAME);
+// (public_key TEXT PRIMARY KEY NOT NULL, account_status INTEGER NOT NULL DEFAULT 0, balance INTEGER NOT NULL DEFAULT 0);", ACCOUNT_TABLE_NAME);
 
 // char sentence_create_log[L] = {0};
 // snprintf(sentence_create_log, L, "CREATE TABLE IF NOT EXISTS %s 
-// (table_id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT NOT NULL, operation_type TEXT NOT NULL, data INTEGER NOT NULL, detination TEXT NOT NULL, time TEXT NOT NULL);", LOG_TABLE_NAME);
+// (table_id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT NOT NULL, operation_type TEXT NOT NULL, data INTEGER NOT NULL, destination TEXT NOT NULL, time TEXT NOT NULL);", LOG_TABLE_NAME);
 
 typedef enum Opt_Type{
         Register,
@@ -48,19 +48,19 @@ typedef enum Opt_Type{
         Quit,
         Freeze,
         Defrost,
-        Query_log_root
+        Query_log_root,
+        Login_root
 } opt_type;
 
 typedef enum Result_Type {
-        Fail = -1,
-        Success = 0,
-        Unknown = 1
+        Fail = 0,
+        Success = 1,
 } Result_Type;
 
 typedef struct MSG {
         opt_type opt_type;
-        unsigned char dst[S];
-        unsigned long data;
+        unsigned char dst[L];
+        unsigned long int data;
 } MSG;
 
 typedef enum Account_Status {

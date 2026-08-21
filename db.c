@@ -14,9 +14,10 @@ char *names_opt[] = {
         "Defrost",
         "Query_log_root"
 };
-char *names_result[] = {"Success", "Fail", "Tips"};
+char *names_result[] = {"Success", "Fail"};
 
-unsigned long char_to_int(char *str) {
+char *names_account_status[] = {"Normal", "Locked", "Frozen", "Root"};
+unsigned long int char_to_int(char *str) {
         return strtol(str, NULL, 10);
 }
 
@@ -31,7 +32,7 @@ void change_account_status(char *public_key, Account_Status account_status) {
         
         int ret_exec = sqlite3_exec(ppdb, sentence_change_account_status, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail: %s", errmsg);
+                printf("sqlite3_exec fail: %s\n", errmsg);
                 return;
         }
         return;
@@ -39,26 +40,21 @@ void change_account_status(char *public_key, Account_Status account_status) {
 
 void create_root_account_if_not_exits(unsigned long int passwd) {
         unsigned char pk_bin[KEY_LEN] = {0};
-        char pk_hex[KEY_LEN * 2 + 1] = {0};
+        char pk_hex[KEY_HEX_LEN] = {0};
         
         unsigned char sk_bin[KEY_LEN] = {0};
-        char sk_hex[KEY_LEN * 2 + 1] = {0};
+        char sk_hex[KEY_HEX_LEN] = {0};
 
         printf("start create root\n");
         FILE *fd = fopen(ROOT_INI, "w+x");
-        if (fd != NULL) {
-                fclose(fd);
+        if (fd == NULL) {
                 return;
         }
         printf("creating root . . .\n");
-        fd = fopen(ROOT_INI, "w");
-        if (fd == NULL) {
-                perror("fopen fail");
-                return;
-        }
+
         generate_account(passwd, sk_hex);
 
-        fwrite(sk_hex, 1, L, fd);
+        fwrite(sk_hex, 1, KEY_HEX_LEN, fd);
 
         // get pk_hex to change status
         sodium_hex2bin(sk_bin, 32, sk_hex, 64, NULL, NULL, NULL);
@@ -82,8 +78,8 @@ void generate_account(unsigned long int passwd, unsigned char *explain_msg) {
 
         crypto_box_seed_keypair(public_key, secret_key, seed);
 
-        char pk_hex[KEY_LEN*2 + 1];    
-        char sk_hex[KEY_LEN*2 + 1];    
+        char pk_hex[KEY_HEX_LEN];    
+        char sk_hex[KEY_HEX_LEN];    
 
         sodium_bin2hex(pk_hex, sizeof(pk_hex), public_key, KEY_LEN);
         sodium_bin2hex(sk_hex, sizeof(sk_hex), secret_key, KEY_LEN);
@@ -93,7 +89,7 @@ void generate_account(unsigned long int passwd, unsigned char *explain_msg) {
         int ret_exec;
         ret_exec = sqlite3_exec(ppdb, sentence_insert_passwd, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail : %s", errmsg);
+                printf("sqlite3_exec fail : %s\n", errmsg);
                 return;
         }
         
@@ -101,11 +97,11 @@ void generate_account(unsigned long int passwd, unsigned char *explain_msg) {
         snprintf(sentence_insert_account, L, "INSERT INTO %s (public_key) VALUES( '%s');", ACCOUNT_TABLE_NAME, pk_hex);        
         ret_exec = sqlite3_exec(ppdb, sentence_insert_account, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail : %s", errmsg);
+                printf("sqlite3_exec fail : %s\n", errmsg);
                 return;
         }
 
-        strncpy(explain_msg, sk_hex, L);
+        strncpy(explain_msg, sk_hex, KEY_HEX_LEN);
         // change status to noraml
         change_account_status(pk_hex, 0);
         return;
@@ -117,7 +113,7 @@ void opt_delete_account(char *current_public_key, Result_Type *result_type, char
         int ret_exec;
         ret_exec = sqlite3_exec(ppdb, sentence_delete_passwd, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail : %s", errmsg);
+                printf("sqlite3_exec fail : %s\n", errmsg);
                 *result_type = Fail;
                 return;
         }
@@ -125,10 +121,11 @@ void opt_delete_account(char *current_public_key, Result_Type *result_type, char
         snprintf(sentence_delete_account, L, "DELETE FROM %s WHERE public_key = '%s';", ACCOUNT_TABLE_NAME, current_public_key);        
         ret_exec = sqlite3_exec(ppdb, sentence_delete_account, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail : %s", errmsg);
+                printf("sqlite3_exec fail : %s\n", errmsg);
                 *result_type = Fail;
                 return;
         }
+        memset(explain_msg, 0, L);
         *result_type = Success;
         return;
 }
@@ -147,10 +144,10 @@ int ini_db() {
         snprintf(sentence_create_passwd , L, "CREATE TABLE IF NOT EXISTS %s(id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT UNIQUE NOT NULL, passwd INTEGER NOT NULL);", PASSWD_TABLE_NAME);
         
         char sentence_create_account[L] = {0};
-        snprintf(sentence_create_account, L, "CREATE TABLE IF NOT EXISTS %s (public_key TEXT PRIMARY KEY NOT NULL, account_status INTEGER NOT NULL DEFAULT 0, blance INTEGER NOT NULL DEFAULT 0);", ACCOUNT_TABLE_NAME);
+        snprintf(sentence_create_account, L, "CREATE TABLE IF NOT EXISTS %s (public_key TEXT PRIMARY KEY NOT NULL, account_status INTEGER NOT NULL DEFAULT 0, balance INTEGER NOT NULL DEFAULT 0);", ACCOUNT_TABLE_NAME);
         
         char sentence_create_log[L] = {0};
-        snprintf(sentence_create_log, L, "CREATE TABLE IF NOT EXISTS %s (table_id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT NOT NULL, operation_type TEXT NOT NULL, data INTEGER NOT NULL, detination TEXT NOT NULL, time TEXT NOT NULL);", LOG_TABLE_NAME);
+        snprintf(sentence_create_log, L, "CREATE TABLE IF NOT EXISTS %s (table_id INTEGER PRIMARY KEY AUTOINCREMENT, public_key TEXT NOT NULL, operation_type TEXT NOT NULL, data INTEGER NOT NULL, destination TEXT NOT NULL, time TEXT NOT NULL);", LOG_TABLE_NAME);
         
         int ret_exec;
         ret_exec = sqlite3_exec(ppdb, sentence_create_passwd, NULL, NULL, &errmsg);
@@ -172,7 +169,7 @@ int ini_db() {
         }
 
         create_root_account_if_not_exits(123456);             // create root account
-        printf("ini db finish");
+        printf("ini db finish\n");
         return OK;
 }
 
@@ -206,7 +203,8 @@ void check_status(char *public_key, Result_Type *result_type, char *explain_msg)
                 return;
         }
 
-        if ((strncmp(resultp[4], "Normal", 6) == 0) && (strlen(resultp[4]) == strlen("Normal"))) {     
+        if ((atoi(resultp[1]) == Normal) || (atoi(resultp[1]) == Root) || (atoi(resultp[1]) == Locked)) {     
+                memset(explain_msg, 0, L);
                 *result_type = Success;
         } else {
                 memset(explain_msg, 0, M);
@@ -227,6 +225,7 @@ void check_illegal(MSG *msg, Result_Type *result_type, char *explain_msg, char *
                 check_status(current_public_key, result_type, explain_msg);
                 if ((*result_type) == Fail) return;
         }
+        memset(explain_msg, 0, L);
         *result_type = Success;
         return;
 }
@@ -242,9 +241,11 @@ void opt_query_self(MSG *msg, Result_Type *result_type, char *explain_msg, char 
                 return;
         }
         memset(explain_msg, 0, M);
-        for (int i = 3; i < 6; i++) {
-                strncat(explain_msg, resultp[i], L);
-        }
+        const char *pk     = resultp[3];
+        const char *status = resultp[4];
+        const char *balance= resultp[5];
+
+        snprintf(explain_msg, L,"\npublic_key: %s\nstatus: %s\nbalance: %s", pk, names_account_status[atoi(status)], balance);
         *result_type = Success;
 
         sqlite3_free_table(resultp);
@@ -263,15 +264,8 @@ void opt_query_log(MSG *msg, Result_Type *result_type, char *explain_msg, char *
                 return;
         }
         memset(explain_msg, 0, M);
-        int n = 0;
-        for (int i = ncolumn; i <= (nrow * ncolumn); i += 6) {
-                strcat(explain_msg, resultp[i + 0]);
-                strcat(explain_msg, resultp[i + 1]);
-                strcat(explain_msg, resultp[i + 2]);
-                strcat(explain_msg, resultp[i + 3]);
-                strcat(explain_msg, resultp[i + 4]);
-                strcat(explain_msg, resultp[i + 5]);
-                strcat(explain_msg, "\n");
+        for (int i = 0; i <= (nrow * ncolumn); i += ncolumn) {
+                snprintf(explain_msg, L, "\nid :%s public_key:%s operation_type:%s\n data:%s destination:%s time:%s\n", resultp[i + 0], resultp[i + 1], names_opt[atoi(resultp[i + 2])], resultp[i + 3], resultp[i + 4], resultp[i + 5]);
         }
         *result_type = Success;
 
@@ -291,8 +285,7 @@ void opt_query_log_root(MSG *msg, Result_Type *result_type, char *explain_msg, c
                 return;
         }
         memset(explain_msg, 0, M);
-        int n = 0;
-        for (int i = ncolumn; i <= (nrow * ncolumn); i += 6) {
+        for (int i = 0; i <= (nrow * ncolumn); i += ncolumn) {
                 strcat(explain_msg, resultp[i + 0]);
                 strcat(explain_msg, resultp[i + 1]);
                 strcat(explain_msg, resultp[i + 2]);
@@ -320,6 +313,7 @@ void opt_deposit(MSG *msg, Result_Type *result_type, char *explain_msg, char *pu
                 *result_type = Fail;
                 return;
         }
+        memset(explain_msg, 0, L);
         *result_type = Success;
         return;
 }
@@ -331,9 +325,8 @@ void opt_withdraw(MSG *msg, Result_Type *result_type, char *explain_msg, char *p
         snprintf(sentence_withdraw, L, "UPDATE %s SET balance = balance - %lu WHERE public_key = '%s' AND balance >= %lu;", ACCOUNT_TABLE_NAME, msg->data, public_key, msg->data);
         
         int ret_exec = sqlite3_exec(ppdb, sentence_withdraw, NULL, NULL, &errmsg);
-        if (ret_exec == SQLITE_ERROR) {
-                memset(explain_msg, 0, M);
-                strncpy(explain_msg, errmsg, L);
+        if (ret_exec == SQLITE_ERROR || (sqlite3_changes(ppdb) != 1)) {
+                strncpy(explain_msg, "money not enough", L);
                 *result_type = Fail;
                 return;
         }
@@ -356,7 +349,7 @@ void opt_lock(char *public_key) {
         return;
 }
 
-char sentence_begin[S] = "START TRANSACTION;";
+char sentence_begin[S] = "BEGIN TRANSACTION;";
 char sentence_commit[S] = "COMMIT;";
 char sentence_rollback[S] = "ROLLBACK";
 
@@ -388,6 +381,18 @@ void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char 
                                 *result_type = Fail;
                                 return;
                         }
+
+                        opt_deposit(msg, result_type, explain_msg, msg->dst);
+                        if ((*result_type == Fail) || (sqlite3_changes(ppdb) != 1)) {
+                                int ret_exec = sqlite3_exec(ppdb, sentence_rollback, NULL, NULL, &errmsg);
+                                if (ret_exec == SQLITE_ERROR) {
+                                        memset(explain_msg, 0, L);
+                                        strncpy(explain_msg, errmsg, L);
+                                        *result_type = Fail;
+                                        return;
+                                }
+                        }
+
                         opt_withdraw(msg, result_type, explain_msg, public_key);
                         if ((*result_type) == Fail) {
                                 int ret_exec = sqlite3_exec(ppdb, sentence_rollback, NULL, NULL, &errmsg);
@@ -398,16 +403,7 @@ void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char 
                                         return;
                                 }
                         }
-                        opt_deposit(msg, result_type, explain_msg, msg->dst);
-                        if ((*result_type) == Fail) {
-                                int ret_exec = sqlite3_exec(ppdb, sentence_rollback, NULL, NULL, &errmsg);
-                                if (ret_exec == SQLITE_ERROR) {
-                                        memset(explain_msg, 0, L);
-                                        strncpy(explain_msg, errmsg, L);
-                                        *result_type = Fail;
-                                        return;
-                                }
-                        }
+
                         ret_exec = sqlite3_exec(ppdb, sentence_commit, NULL, NULL, &errmsg);
                         if (ret_exec == SQLITE_ERROR) {
                                 memset(explain_msg, 0, L);
@@ -426,15 +422,17 @@ void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char 
                         //         *result_type = Fail;
                         //         return;
                         // }
+                        change_account_status(public_key, Normal);
+                        memset(explain_msg, 0, L);
                         *result_type = Success;
                         break;
                 }
 
                 case Freeze: 
-                        opt_freeze(public_key);
+                        opt_freeze(msg->dst);
                         break;
                 case Defrost:
-                        opt_defrost(public_key);
+                        opt_defrost(msg->dst);
                         break;
                 case Query_log_root:
                         opt_query_log_root(msg, result_type, explain_msg, public_key);
@@ -449,7 +447,7 @@ void opt_account_db(MSG *msg, Result_Type *result_type, char *explain_msg, char 
 
 void opt_log_db(MSG *msg, char *public_key) {
         time_t now = time(NULL);
-        struct tm *t = localtime(NULL);
+        struct tm *t = localtime(&now);
 
         char time_buffer[L] = {0};
         snprintf(time_buffer, L, "%04d-%02d-%02d %02d:%02d:%02d",
@@ -467,11 +465,11 @@ void opt_log_db(MSG *msg, char *public_key) {
         } else {
                 strncpy(dst, public_key, L);
         }
-        snprintf(sentence_insert_log, L, "INSERT INTO %s ( public_key, operation_type, data, detination, time) VALUES ('%s', '%s', %lu, '%s', '%s');", LOG_TABLE_NAME, public_key, names_opt[msg->opt_type], msg->data, msg->dst, time_buffer);
+        snprintf(sentence_insert_log, L, "INSERT INTO %s ( public_key, operation_type, data, destination, time) VALUES ('%s', '%s', %lu, '%s', '%s');", LOG_TABLE_NAME, public_key, names_opt[msg->opt_type], msg->data, dst, time_buffer);
 
         int ret_exec = sqlite3_exec(ppdb, sentence_insert_log, NULL, NULL, &errmsg);
         if (ret_exec == SQLITE_ERROR) {
-                printf("sqlite3_exec fail : %s", errmsg);
+                printf("sqlite3_exec fail : %s\n", errmsg);
                 return;
         }
         return;
